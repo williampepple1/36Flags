@@ -12,21 +12,27 @@ export interface Database {
       users: {
         Row: {
           id: string
+          auth_id: string
           username: string
+          email: string
           is_online: boolean
           created_at: string
           last_seen: string
         }
         Insert: {
-          id: string
+          id?: string
+          auth_id: string
           username: string
+          email: string
           is_online?: boolean
           created_at?: string
           last_seen?: string
         }
         Update: {
           id?: string
+          auth_id?: string
           username?: string
+          email?: string
           is_online?: boolean
           created_at?: string
           last_seen?: string

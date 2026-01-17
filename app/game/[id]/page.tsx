@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabase, getCurrentUser } from '@/lib/supabase'
 import { Card, Player, GameState } from '@/lib/types'
 import { checkMatch, isGameComplete, determineWinner } from '@/lib/gameUtils'
 import FlagCard from '@/components/FlagCard'
@@ -20,16 +20,40 @@ export default function Game() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const userId = localStorage.getItem('userId')
-    if (!userId) {
-      router.push('/')
-      return
-    }
-
-    setCurrentUserId(userId)
-    loadGame()
-    subscribeToGameChanges()
+    checkAuthAndLoadGame()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameId])
+
+  const checkAuthAndLoadGame = async () => {
+    try {
+      const user = await getCurrentUser()
+      
+      if (!user) {
+        router.push('/')
+        return
+      }
+
+      // Get user profile from database
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('auth_id', user.id)
+        .single()
+
+      if (!userProfile) {
+        await supabase.auth.signOut()
+        router.push('/')
+        return
+      }
+
+      setCurrentUserId(userProfile.id)
+      loadGame()
+      subscribeToGameChanges()
+    } catch (error) {
+      console.error('Auth check error:', error)
+      router.push('/')
+    }
+  }
 
   const loadGame = async () => {
     const { data, error } = await supabase
@@ -185,7 +209,7 @@ export default function Game() {
       .eq('id', gameId)
   }
 
-  const handleCloseGame = () => {
+  const handleCloseGame = async () => {
     router.push('/lobby')
   }
 
@@ -323,7 +347,7 @@ export default function Game() {
             ) : (
               <div>
                 <div className="text-6xl mb-4">🤝</div>
-                <p className="text-2xl font-semibold text-yellow-400 mb-2">It's a Tie!</p>
+                <p className="text-2xl font-semibold text-yellow-400 mb-2">It is a Tie!</p>
                 <p className="text-gray-300">
                   {myMatches.length} - {opponentMatches.length}
                 </p>

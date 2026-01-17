@@ -5,67 +5,149 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 export default function Home() {
+  const [isLogin, setIsLogin] = useState(true)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
   const router = useRouter()
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!username.trim()) {
-      setError('Please enter a username')
+    if (!email.trim() || !password.trim()) {
+      setError('Please enter email and password')
       return
     }
 
     setLoading(true)
     setError('')
+    setMessage('')
 
     try {
-      // Create or update user in Supabase
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('*')
-        .eq('username', username.trim())
-        .single()
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim(),
+      })
 
-      let userId: string
+      if (signInError) throw signInError
 
-      if (existingUser) {
-        // Update existing user's online status
-        userId = existingUser.id
-        await supabase
+      if (data.user) {
+        // Get user profile from database
+        const { data: userProfile } = await supabase
           .from('users')
-          .update({ 
-            is_online: true,
-            last_seen: new Date().toISOString()
-          })
-          .eq('id', userId)
-      } else {
-        // Create new user
-        const { data: newUser, error: createError } = await supabase
-          .from('users')
-          .insert({
-            id: crypto.randomUUID(),
-            username: username.trim(),
-            is_online: true,
-          })
-          .select()
+          .select('*')
+          .eq('auth_id', data.user.id)
           .single()
 
-        if (createError) throw createError
-        userId = newUser.id
+        if (userProfile) {
+          // Update online status
+          await supabase
+            .from('users')
+            .update({ 
+              is_online: true,
+              last_seen: new Date().toISOString()
+            })
+            .eq('id', userProfile.id)
+
+          // Store user info in localStorage
+          localStorage.setItem('userId', userProfile.id)
+          localStorage.setItem('username', userProfile.username)
+
+          // Navigate to lobby
+          router.push('/lobby')
+        } else {
+          throw new Error('User profile not found. Please contact support.')
+        }
       }
-
-      // Store user info in localStorage
-      localStorage.setItem('userId', userId)
-      localStorage.setItem('username', username.trim())
-
-      // Navigate to lobby
-      router.push('/lobby')
     } catch (err: any) {
       console.error('Login error:', err)
       setError(err.message || 'Failed to login. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSignup = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!email.trim() || !password.trim() || !username.trim()) {
+      setError('Please fill in all fields')
+      return
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters')
+      return
+    }
+
+    if (username.length < 3) {
+      setError('Username must be at least 3 characters')
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setMessage('')
+
+    try {
+      // Check if username is already taken
+      const { data: existingUsername } = await supabase
+        .from('users')
+        .select('username')
+        .eq('username', username.trim())
+        .single()
+
+      if (existingUsername) {
+        throw new Error('Username already taken. Please choose another.')
+      }
+
+      // Sign up with Supabase Auth
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: password.trim(),
+      })
+
+      if (signUpError) throw signUpError
+
+      if (data.user) {
+        // Create user profile in database
+        const { error: profileError } = await supabase
+          .from('users')
+          .insert({
+            auth_id: data.user.id,
+            username: username.trim(),
+            email: email.trim(),
+            is_online: true,
+          })
+
+        if (profileError) throw profileError
+
+        // Get the created profile
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('*')
+          .eq('auth_id', data.user.id)
+          .single()
+
+        if (userProfile) {
+          // Store user info in localStorage
+          localStorage.setItem('userId', userProfile.id)
+          localStorage.setItem('username', userProfile.username)
+
+          setMessage('Account created successfully! Redirecting to lobby...')
+          
+          // Navigate to lobby
+          setTimeout(() => {
+            router.push('/lobby')
+          }, 1500)
+        }
+      }
+    } catch (err: any) {
+      console.error('Signup error:', err)
+      setError(err.message || 'Failed to create account. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -83,19 +165,83 @@ export default function Home() {
           </p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-6">
+        {/* Toggle between Login and Signup */}
+        <div className="flex mb-6 bg-white/5 rounded-lg p-1">
+          <button
+            onClick={() => {
+              setIsLogin(true)
+              setError('')
+              setMessage('')
+            }}
+            className={`flex-1 py-2 px-4 rounded-md transition-all ${
+              isLogin
+                ? 'bg-primary-500 text-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Login
+          </button>
+          <button
+            onClick={() => {
+              setIsLogin(false)
+              setError('')
+              setMessage('')
+            }}
+            className={`flex-1 py-2 px-4 rounded-md transition-all ${
+              !isLogin
+                ? 'bg-primary-500 text-white'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Sign Up
+          </button>
+        </div>
+
+        <form onSubmit={isLogin ? handleLogin : handleSignup} className="space-y-4">
+          {!isLogin && (
+            <div>
+              <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-2">
+                Username
+              </label>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-white placeholder-gray-400 transition-all"
+                placeholder="Choose a username..."
+                maxLength={20}
+                disabled={loading}
+              />
+            </div>
+          )}
+
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-300 mb-2">
-              Enter Your Username
+            <label htmlFor="email" className="block text-sm font-medium text-gray-300 mb-2">
+              Email
             </label>
             <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-white placeholder-gray-400 transition-all"
-              placeholder="Choose a username..."
-              maxLength={20}
+              placeholder="your@email.com"
+              disabled={loading}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-gray-300 mb-2">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-white placeholder-gray-400 transition-all"
+              placeholder="••••••••"
               disabled={loading}
             />
           </div>
@@ -103,6 +249,12 @@ export default function Home() {
           {error && (
             <div className="bg-red-500/20 border border-red-500/50 text-red-200 px-4 py-3 rounded-lg">
               {error}
+            </div>
+          )}
+
+          {message && (
+            <div className="bg-green-500/20 border border-green-500/50 text-green-200 px-4 py-3 rounded-lg">
+              {message}
             </div>
           )}
 
@@ -117,10 +269,10 @@ export default function Home() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                Entering Lobby...
+                {isLogin ? 'Logging in...' : 'Creating account...'}
               </span>
             ) : (
-              'Enter Lobby'
+              isLogin ? 'Login' : 'Create Account'
             )}
           </button>
         </form>

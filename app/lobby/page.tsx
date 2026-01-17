@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/lib/supabase'
+import { supabase, getCurrentUser } from '@/lib/supabase'
 import { Player, Invitation } from '@/lib/types'
 
 export default function Lobby() {
@@ -13,40 +13,68 @@ export default function Lobby() {
   const router = useRouter()
 
   useEffect(() => {
-    // Check if user is logged in
-    const userId = localStorage.getItem('userId')
-    const username = localStorage.getItem('username')
-
-    if (!userId || !username) {
-      router.push('/')
-      return
-    }
-
-    setCurrentUser({ id: userId, username, isOnline: true })
-    loadOnlinePlayers()
-    loadInvitations()
-    subscribeToChanges()
-
-    // Set up heartbeat to maintain online status
-    const heartbeat = setInterval(updateOnlineStatus, 30000)
-
-    // Handle page unload
-    const handleUnload = () => {
-      updateOnlineStatus(false)
-    }
-    window.addEventListener('beforeunload', handleUnload)
-
-    return () => {
-      clearInterval(heartbeat)
-      window.removeEventListener('beforeunload', handleUnload)
-      updateOnlineStatus(false)
-    }
+    checkAuth()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const updateOnlineStatus = async (isOnline = true) => {
-    const userId = localStorage.getItem('userId')
-    if (!userId) return
+  const checkAuth = async () => {
+    try {
+      const user = await getCurrentUser()
+      
+      if (!user) {
+        router.push('/')
+        return
+      }
 
+      // Get user profile from database
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('*')
+        .eq('auth_id', user.id)
+        .single()
+
+      if (!userProfile) {
+        await supabase.auth.signOut()
+        router.push('/')
+        return
+      }
+
+      setCurrentUser({
+        id: userProfile.id,
+        username: userProfile.username,
+        isOnline: true
+      })
+
+      // Update online status
+      await updateOnlineStatus(userProfile.id, true)
+
+      loadOnlinePlayers(userProfile.id)
+      loadInvitations(userProfile.id)
+      subscribeToChanges(userProfile.id)
+
+      // Set up heartbeat to maintain online status
+      const heartbeat = setInterval(() => updateOnlineStatus(userProfile.id, true), 30000)
+
+      // Handle page unload
+      const handleUnload = () => {
+        updateOnlineStatus(userProfile.id, false)
+      }
+      window.addEventListener('beforeunload', handleUnload)
+
+      return () => {
+        clearInterval(heartbeat)
+        window.removeEventListener('beforeunload', handleUnload)
+        updateOnlineStatus(userProfile.id, false)
+      }
+    } catch (error) {
+      console.error('Auth check error:', error)
+      router.push('/')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const updateOnlineStatus = async (userId: string, isOnline = true) => {
     await supabase
       .from('users')
       .update({ 
@@ -56,13 +84,12 @@ export default function Lobby() {
       .eq('id', userId)
   }
 
-  const loadOnlinePlayers = async () => {
-    const userId = localStorage.getItem('userId')
+  const loadOnlinePlayers = async (currentUserId: string) => {
     const { data, error } = await supabase
       .from('users')
       .select('*')
       .eq('is_online', true)
-      .neq('id', userId || '')
+      .neq('id', currentUserId)
 
     if (data) {
       setOnlinePlayers(data.map(u => ({
@@ -71,11 +98,9 @@ export default function Lobby() {
         isOnline: u.is_online
       })))
     }
-    setLoading(false)
   }
 
-  const loadInvitations = async () => {
-    const userId = localStorage.getItem('userId')
+  const loadInvitations = async (userId: string) => {
     const { data, error } = await supabase
       .from('game_invitations')
       .select(`
@@ -106,13 +131,13 @@ export default function Lobby() {
     }
   }
 
-  const subscribeToChanges = () => {
+  const subscribeToChanges = (userId: string) => {
     // Subscribe to user changes
     const usersChannel = supabase
       .channel('users-changes')
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'users' },
-        () => loadOnlinePlayers()
+        () => loadOnlinePlayers(userId)
       )
       .subscribe()
 
@@ -122,11 +147,11 @@ export default function Lobby() {
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'game_invitations' },
         (payload) => {
-          loadInvitations()
+          loadInvitations(userId)
           
           // Check if invitation was accepted
           if (payload.eventType === 'UPDATE' && payload.new.status === 'accepted') {
-            checkForActiveGame()
+            checkForActiveGame(userId)
           }
         }
       )
@@ -138,8 +163,7 @@ export default function Lobby() {
     }
   }
 
-  const checkForActiveGame = async () => {
-    const userId = localStorage.getItem('userId')
+  const checkForActiveGame = async (userId: string) => {
     const { data } = await supabase
       .from('games')
       .select('*')
@@ -153,19 +177,18 @@ export default function Lobby() {
   }
 
   const sendInvitation = async (receiverId: string) => {
-    const userId = localStorage.getItem('userId')
-    if (!userId) return
+    if (!currentUser) return
 
     const { error } = await supabase
       .from('game_invitations')
       .insert({
-        sender_id: userId,
+        sender_id: currentUser.id,
         receiver_id: receiverId,
         status: 'pending'
       })
 
     if (!error) {
-      loadInvitations()
+      loadInvitations(currentUser.id)
     }
   }
 
@@ -183,7 +206,9 @@ export default function Lobby() {
       }
     }
 
-    loadInvitations()
+    if (currentUser) {
+      loadInvitations(currentUser.id)
+    }
   }
 
   const createGame = async (player1Id: string, player2Id: string) => {
@@ -213,7 +238,10 @@ export default function Lobby() {
   }
 
   const handleLogout = async () => {
-    await updateOnlineStatus(false)
+    if (currentUser) {
+      await updateOnlineStatus(currentUser.id, false)
+    }
+    await supabase.auth.signOut()
     localStorage.removeItem('userId')
     localStorage.removeItem('username')
     router.push('/')
