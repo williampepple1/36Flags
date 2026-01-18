@@ -105,31 +105,26 @@ export default function Home() {
       }
 
       // Sign up with Supabase Auth
+      // We pass the username in metadata so the database trigger can create the profile
       const { data, error: signUpError } = await supabase.auth.signUp({
         email: email.trim(),
         password: password.trim(),
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
+          data: {
+            username: username.trim(),
+          },
         },
       })
 
       if (signUpError) throw signUpError
 
       if (data.user) {
-        // Create user profile in database
-        const { error: profileError } = await supabase
-          .from('users')
-          .insert({
-            auth_id: data.user.id,
-            username: username.trim(),
-            email: email.trim(),
-            is_online: true,
-          })
-
-        if (profileError) throw profileError
+        // Wait a brief moment for the database trigger to create the profile
+        await new Promise(resolve => setTimeout(resolve, 1000))
 
         // Get the created profile
-        const { data: userProfile } = await supabase
+        const { data: userProfile, error: profileFetchError } = await supabase
           .from('users')
           .select('*')
           .eq('auth_id', data.user.id)
@@ -146,11 +141,25 @@ export default function Home() {
           setTimeout(() => {
             router.push('/lobby')
           }, 1500)
+        } else {
+          // If profile isn't found immediately (e.g. if email confirmation is required),
+          // we still consider it a success but inform the user
+          console.log('Profile not explicitly found immediately (likely email confirmation needed):', profileFetchError)
+          setMessage('Account created! Please check your email to confirm.')
         }
       }
     } catch (err: any) {
       console.error('Signup error:', err)
-      setError(err.message || 'Failed to create account. Please try again.')
+      let errorMessage = err.message || 'Failed to create account. Please try again.'
+      
+      // Customize specific error messages
+      if (errorMessage.includes('Database error')) {
+        errorMessage = 'Service temporarily unavailable. Please try again later.'
+      } else if (errorMessage.includes('User already registered')) {
+        errorMessage = 'This email is already registered. Please login instead.'
+      }
+
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
