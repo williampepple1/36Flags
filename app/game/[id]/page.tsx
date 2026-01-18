@@ -126,6 +126,12 @@ export default function Game() {
       c.id === card.id ? { ...c, isRevealed: true } : c
     )
 
+    // Optimistic update
+    setGameState({
+      ...gameState,
+      board: updatedBoard
+    })
+
     await supabase
       .from('games')
       .update({ board_state: updatedBoard })
@@ -309,11 +315,15 @@ export default function Game() {
               <div className="grid grid-cols-6 gap-3 md:gap-4">
                 {gameState.board.map((card) => (
                   <div key={card.id} className="aspect-square">
-                    <FlagCard
-                      card={card}
-                      onClick={() => handleCardClick(card)}
-                      disabled={!isMyTurn || isProcessing || selectedCards.length >= 2}
-                    />
+                    {!card.isMatched ? (
+                      <FlagCard
+                        card={card}
+                        onClick={() => handleCardClick(card)}
+                        disabled={!isMyTurn || isProcessing || selectedCards.length >= 2}
+                      />
+                    ) : (
+                      <div className="w-full h-full invisible" />
+                    )}
                   </div>
                 ))}
               </div>
