@@ -105,7 +105,28 @@ export default function Game() {
           table: 'games',
           filter: `id=eq.${gameId}`
         },
-        () => loadGame()
+        (payload) => {
+           const newData = payload.new
+           setGameState(prevState => {
+              if (!prevState) return null
+              
+              const newBoard = (newData.board_state as Card[]).sort((a, b) => (a.gridIndex || 0) - (b.gridIndex || 0))
+              
+              if (newData.status === 'completed') {
+                setShowEndDialog(true)
+              }
+              
+              return {
+                 ...prevState,
+                 currentTurn: newData.current_turn,
+                 board: newBoard,
+                 player1Matches: newData.player1_matches,
+                 player2Matches: newData.player2_matches,
+                 status: newData.status,
+                 winnerId: newData.winner_id
+              }
+           })
+        }
       )
       .subscribe()
 
