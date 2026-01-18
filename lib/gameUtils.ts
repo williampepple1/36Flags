@@ -20,7 +20,8 @@ export function shuffleArray<T>(array: T[]): T[] {
  * Total: 36 cards
  */
 export function generateBoard(): Card[] {
-  const cards: Card[] = []
+  // Use explicit type assertion for initial array creation to bypass gridIndex check until final mapping
+  const cards: any[] = []
   let id = 0
 
   // Add 17 pairs of country flags
@@ -56,7 +57,13 @@ export function generateBoard(): Card[] {
   })
 
   // Shuffle the cards
-  return shuffleArray(cards)
+  const shuffled = shuffleArray(cards)
+  
+  // Assign grid index to persist position
+  return shuffled.map((card, index) => ({
+    ...card,
+    gridIndex: index
+  }))
 }
 
 /**

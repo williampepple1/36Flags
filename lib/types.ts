@@ -3,6 +3,7 @@ export interface Card {
   country: string
   isRevealed: boolean
   isMatched: boolean
+  gridIndex: number
 }
 
 export interface Player {

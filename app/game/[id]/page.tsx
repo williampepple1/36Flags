@@ -80,7 +80,7 @@ export default function Game() {
           isOnline: data.player2.is_online
         },
         currentTurn: data.current_turn,
-        board: data.board_state as Card[],
+        board: (data.board_state as Card[]).sort((a, b) => (a.gridIndex || 0) - (b.gridIndex || 0)),
         player1Matches: data.player1_matches,
         player2Matches: data.player2_matches,
         status: data.status,
@@ -142,6 +142,7 @@ export default function Game() {
       setIsProcessing(true)
       
       setTimeout(async () => {
+        // Optimistically calculate the result to show immediate feedback (flip back or disappear)
         await processMatch(newSelectedCards, updatedBoard)
         setSelectedCards([])
         setIsProcessing(false)
@@ -192,15 +193,28 @@ export default function Game() {
     const gameComplete = isGameComplete(updatedBoard)
     let winnerId = null
     let status: 'active' | 'completed' = 'active'
+    let finalWinnerId = gameState.winnerId // Keep existing winner if any
 
     if (gameComplete) {
       const winner = determineWinner(player1Matches, player2Matches)
-      winnerId = winner === 'player1' ? gameState.player1.id : 
+      finalWinnerId = winner === 'player1' ? gameState.player1.id : 
                  winner === 'player2' ? gameState.player2.id : null
       status = 'completed'
     }
 
-    // Update game state
+    // Optimistic update of the outcome (Flip back or Match)
+    const newGameState = {
+        ...gameState,
+        board: updatedBoard, // This contains the Hidden cards if no match, or Matched cards if match
+        currentTurn: nextTurn,
+        player1Matches,
+        player2Matches,
+        status,
+        winnerId: finalWinnerId
+    }
+    setGameState(newGameState)
+
+    // Update game state in DB
     await supabase
       .from('games')
       .update({
@@ -209,7 +223,7 @@ export default function Game() {
         player1_matches: player1Matches,
         player2_matches: player2Matches,
         status,
-        winner_id: winnerId,
+        winner_id: finalWinnerId,
         updated_at: new Date().toISOString()
       })
       .eq('id', gameId)
