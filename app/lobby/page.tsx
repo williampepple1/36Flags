@@ -148,10 +148,18 @@ export default function Lobby() {
         { event: '*', schema: 'public', table: 'game_invitations' },
         (payload) => {
           loadInvitations(userId)
-          
-          // Check if invitation was accepted
-          if (payload.eventType === 'UPDATE' && payload.new.status === 'accepted') {
-            checkForActiveGame(userId)
+        }
+      )
+      .subscribe()
+
+    // Subscribe to new games (for the sender to be redirected)
+    const gamesChannel = supabase
+      .channel('games-changes')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'games' },
+        (payload) => {
+          if (payload.new.player1_id === userId || payload.new.player2_id === userId) {
+            router.push(`/game/${payload.new.id}`)
           }
         }
       )
@@ -160,6 +168,7 @@ export default function Lobby() {
     return () => {
       supabase.removeChannel(usersChannel)
       supabase.removeChannel(invitationsChannel)
+      supabase.removeChannel(gamesChannel)
     }
   }
 
