@@ -48,7 +48,7 @@ export default function Game() {
 
       setCurrentUserId(userProfile.id)
       loadGame()
-      subscribeToGameChanges()
+      subscribeToGameChanges(userProfile.id)
     } catch (error) {
       console.error('Auth check error:', error)
       router.push('/')
@@ -95,7 +95,7 @@ export default function Game() {
     setLoading(false)
   }
 
-  const subscribeToGameChanges = () => {
+  const subscribeToGameChanges = (userId: string) => {
     const channel = supabase
       .channel(`game-${gameId}`)
       .on('postgres_changes',
@@ -107,6 +107,10 @@ export default function Game() {
         },
         (payload) => {
            const newData = payload.new
+           
+           // Ignore updates triggered by myself to prevent optimistic UI overwrites
+           if (newData.last_updated_by === userId) return
+
            setGameState(prevState => {
               if (!prevState) return null
               
@@ -128,7 +132,15 @@ export default function Game() {
            })
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('Realtime connection established for game updates')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Realtime connection error')
+        } else if (status === 'TIMED_OUT') {
+          console.error('Realtime connection timed out')
+        }
+      })
 
     return () => {
       supabase.removeChannel(channel)
@@ -155,7 +167,10 @@ export default function Game() {
 
     await supabase
       .from('games')
-      .update({ board_state: updatedBoard })
+      .update({ 
+        board_state: updatedBoard,
+        last_updated_by: currentUserId
+      })
       .eq('id', gameId)
 
     // Check for match if two cards are selected
@@ -167,7 +182,7 @@ export default function Game() {
         await processMatch(newSelectedCards, updatedBoard)
         setSelectedCards([])
         setIsProcessing(false)
-      }, 1500)
+      }, 1000)
     }
   }
 
@@ -245,7 +260,8 @@ export default function Game() {
         player2_matches: player2Matches,
         status,
         winner_id: finalWinnerId,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        last_updated_by: currentUserId
       })
       .eq('id', gameId)
   }

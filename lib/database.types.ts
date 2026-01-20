@@ -72,6 +72,7 @@ export interface Database {
           player2_matches: string[]
           status: 'active' | 'completed'
           winner_id: string | null
+          last_updated_by: string | null
           created_at: string
           updated_at: string
         }
@@ -85,6 +86,7 @@ export interface Database {
           player2_matches?: string[]
           status?: 'active' | 'completed'
           winner_id?: string | null
+          last_updated_by?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -98,6 +100,7 @@ export interface Database {
           player2_matches?: string[]
           status?: 'active' | 'completed'
           winner_id?: string | null
+          last_updated_by?: string | null
           created_at?: string
           updated_at?: string
         }
